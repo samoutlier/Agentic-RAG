@@ -7,11 +7,12 @@ build/
 
 # Environment
 .env
+.env.example
 .venv/
 venv/
 
 # Vector store data
-chroma_data/
+faiss_data/
 
 # IDE
 .vscode/

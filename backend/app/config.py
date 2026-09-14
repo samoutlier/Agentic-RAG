@@ -2,15 +2,15 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Loading the .env file from backend
+#It is to load the .env file from backend
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # Setting the env variables
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.1-70b-versatile")
+LLM_MODEL    = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
-CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data")
+FAISS_INDEX_DIR = os.getenv("FAISS_INDEX_DIR", "./faiss_data")
 
 # I have creaetd 4 domains here 
 DOMAIN_COLLECTIONS = {
