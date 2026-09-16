@@ -15,6 +15,7 @@ numpy==1.26.4
 # LLM & RAG chain
 langchain==0.3.14
 langchain-groq==0.2.4
+groq==0.37.1
 
 # Utilities
 python-dotenv==1.0.1

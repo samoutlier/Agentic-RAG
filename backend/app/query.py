@@ -1,9 +1,15 @@
+import asyncio
 import json
+import logging
+
+import groq
 import numpy as np
 from langchain_groq import ChatGroq
 from app.ingest import embedding_model, load_index
 from app.config import TOP_K_RESULTS, GROQ_API_KEY, LLM_MODEL, LLM_TEMPERATURE
 from app.prompt_templates import get_prompt
+
+logger = logging.getLogger(__name__)
 
 
 def retrieve_chunks(query: str, domain: str) -> list[dict]:
@@ -103,24 +109,43 @@ def query_document(question: str, domain: str) -> dict:
     }
 
 
+def _sse(event_type: str, content) -> str:
+    """Format one Server-Sent Event: a `data:` line followed by a blank line."""
+    return f"data: {json.dumps({'type': event_type, 'content': content})}\n\n"
+
+
 async def stream_query(question: str, domain: str):
     """Streaming version of query_document.
-    Yields Server-Sent Events: sources first, then tokens, then done signal.
+    Yields Server-Sent Events: sources first, then tokens, then a done signal.
+
+    Once streaming starts, the HTTP 200 status has already been sent, so a
+    failure after that point can't become an HTTP error code. Errors are sent
+    as an in-stream "error" event instead, which the frontend displays.
     """
-    chunks = retrieve_chunks(question, domain)
+    # Embedding the question is CPU work; a worker thread keeps the server
+    # free to handle other requests in the meantime.
+    chunks = await asyncio.to_thread(retrieve_chunks, question, domain)
 
     if not chunks:
-        yield f"data: {json.dumps({'type': 'error', 'content': 'No relevant documents found.'})}\n\n"
+        yield _sse("error", "No documents are indexed for this domain yet. Upload one first.")
         return
 
-    yield f"data: {json.dumps({'type': 'sources', 'content': build_sources(chunks)})}\n\n"
+    yield _sse("sources", build_sources(chunks))
 
     context = format_context(chunks)
     prompt = get_prompt(domain)
     formatted_prompt = prompt.format(context=context, question=question)
 
-    async for token_chunk in llm.astream(formatted_prompt):
-        if token_chunk.content:
-            yield f"data: {json.dumps({'type': 'token', 'content': token_chunk.content})}\n\n"
+    try:
+        async for token_chunk in llm.astream(formatted_prompt):
+            if token_chunk.content:
+                yield _sse("token", token_chunk.content)
+    except groq.RateLimitError:
+        yield _sse("error", "Groq's free-tier rate limit was reached. Wait about a minute and try again.")
+        return
+    except Exception:
+        logger.exception("LLM streaming failed")
+        yield _sse("error", "The language model request failed. Check the backend logs for details.")
+        return
 
-    yield f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n"
+    yield _sse("done", "")
