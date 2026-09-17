@@ -1,10 +1,11 @@
 import os
 import shutil
 import tempfile
+from typing import Literal
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.ingest import ingest_document
 from app.query import query_document, stream_query
@@ -95,11 +96,22 @@ async def ingest_endpoint(
 
 
 # ── /query endpoint ──
-# Accepts a question + domain, runs RAG pipeline, returns answer + sources.
+# Accepts a question + domain (+ optional chat history), runs the RAG
+# pipeline, returns answer + sources.
+
+class ChatTurn(BaseModel):
+    """One earlier message in the conversation."""
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=20_000)
+
 
 class QueryRequest(BaseModel):
     question: str
     domain: str
+    # Earlier messages in this chat, oldest first. Optional, so a one-off
+    # question (from curl or /docs) still works without it. The list size is
+    # capped because this comes straight from the client.
+    history: list[ChatTurn] = Field(default_factory=list, max_length=50)
 
 
 @app.post("/query")
@@ -114,8 +126,8 @@ def query_endpoint(req: QueryRequest):
         )
 
     # Retrieve relevant chunks → build prompt → call LLM → return answer
-    result = query_document(req.question, req.domain)
-    return result
+    history = [turn.model_dump() for turn in req.history]
+    return query_document(req.question, req.domain, history)
 
 
 # ── /stream endpoint ──
@@ -138,7 +150,8 @@ async def stream_endpoint(req: QueryRequest):
             detail=f"Invalid domain: {req.domain}. Valid: legal, finance, healthcare, enterprise",
         )
 
+    history = [turn.model_dump() for turn in req.history]
     return StreamingResponse(
-        stream_query(req.question, req.domain),
+        stream_query(req.question, req.domain, history),
         media_type="text/event-stream",
     )

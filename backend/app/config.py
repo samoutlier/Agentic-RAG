@@ -29,5 +29,11 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
 #To retreie only top k results
 TOP_K_RESULTS = int(os.getenv("TOP_K_RESULTS", "5"))
 
+# Follow-up questions: how much recent chat is included in the prompt.
+# One answer can be ~1,300 tokens and Groq's free tier allows 8,000 tokens
+# per minute, so history is capped by message count and trimmed per message.
+HISTORY_MAX_MESSAGES = int(os.getenv("HISTORY_MAX_MESSAGES", "6"))
+HISTORY_MAX_CHARS = int(os.getenv("HISTORY_MAX_CHARS", "1500"))
+
 # Allowed file types 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
