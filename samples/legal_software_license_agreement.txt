@@ -1,0 +1,35 @@
+SOFTWARE LICENSE AGREEMENT
+
+This Software License Agreement ("Agreement") is entered into on 1 March 2026 between
+Brightline Software Ltd ("Licensor") and Harbor Logistics Inc ("Licensee").
+
+1. GRANT OF LICENSE
+Licensor grants Licensee a non-exclusive, non-transferable license to use the RouteWise
+software for up to 250 named users, solely for Licensee's internal business operations.
+
+2. TERM AND RENEWAL
+This Agreement has an initial term of three (3) years starting 1 March 2026. It renews
+automatically for successive one (1) year periods unless either party gives written notice
+of non-renewal at least ninety (90) days before the end of the current term.
+
+3. FEES AND PAYMENT
+Licensee shall pay an annual license fee of USD 120,000. Invoices are payable within
+thirty (30) days of the invoice date. Late payments accrue interest at 1.5% per month.
+
+4. TERMINATION
+Either party may terminate this Agreement for material breach if the breach is not cured
+within thirty (30) days after written notice describing the breach. Licensor may terminate
+immediately if Licensee becomes insolvent.
+
+5. LIMITATION OF LIABILITY
+Each party's total liability under this Agreement shall not exceed the fees paid by Licensee
+in the twelve (12) months preceding the claim. This limitation does not apply to breach of
+the confidentiality clause or to indemnity obligations.
+
+6. CONFIDENTIALITY
+Each party shall protect the other party's confidential information and shall not disclose it
+to third parties. This obligation survives termination of the Agreement for five (5) years.
+
+7. GOVERNING LAW AND DISPUTES
+This Agreement is governed by the laws of England and Wales. Any dispute arising under this
+Agreement shall be resolved by binding arbitration in London under the LCIA Rules.

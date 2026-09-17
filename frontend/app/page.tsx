@@ -1,40 +1,47 @@
 "use client";
 
-import { useState } from "react";
-import { FileText } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ChatWindow } from "@/components/ChatWindow";
+import { DocumentList } from "@/components/DocumentList";
 import { FileUpload } from "@/components/FileUpload";
 import { DOMAINS, getDomain, type DomainId } from "@/lib/domains";
-import type { IngestResult } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { listDocuments, type IngestResult, type StoredDocument } from "@/lib/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-// Documents uploaded during this browser session, grouped by domain.
-// The backend has no "list documents" endpoint yet, so this resets on refresh.
-type DocumentsByDomain = Record<DomainId, IngestResult[]>;
-
-const EMPTY_DOCUMENTS: DocumentsByDomain = {
-  legal: [],
-  finance: [],
-  healthcare: [],
-  enterprise: [],
-};
 
 export default function Home() {
   const [activeDomain, setActiveDomain] = useState<DomainId>("legal");
-  const [documents, setDocuments] = useState<DocumentsByDomain>(EMPTY_DOCUMENTS);
+  // Every document stored on the backend, across all domains.
+  // null until the first load finishes.
+  const [documents, setDocuments] = useState<StoredDocument[] | null>(null);
+  const [documentsError, setDocumentsError] = useState<string | null>(null);
+  // Bumping this number re-runs the effect below, which reloads the list
+  const [reloadKey, setReloadKey] = useState(0);
+  const refreshDocuments = () => setReloadKey((key) => key + 1);
+
+  // Load the document list when the page opens, and again after every refresh.
+  useEffect(() => {
+    // If a newer reload starts before this one finishes, ignore this result,
+    // so a slow, older response can't overwrite a newer list.
+    let ignore = false;
+    listDocuments().then(
+      (docs) => {
+        if (ignore) return;
+        setDocuments(docs);
+        setDocumentsError(null);
+      },
+      (error) => {
+        if (ignore) return;
+        setDocumentsError(error instanceof Error ? error.message : "Couldn't load documents.");
+      },
+    );
+    return () => {
+      ignore = true;
+    };
+  }, [reloadKey]);
 
   function handleUploaded(result: IngestResult) {
-    setDocuments((previous) => ({
-      ...previous,
-      // Re-uploading a file replaces its chunks on the backend, so replace it here too
-      [result.domain]: [
-        result,
-        ...previous[result.domain].filter((doc) => doc.filename !== result.filename),
-      ],
-    }));
+    refreshDocuments();
 
     // Auto-detection may file the document under a different domain than
     // the open tab. Follow it, so the user can immediately ask about it.
@@ -76,32 +83,12 @@ export default function Home() {
               <div className="flex flex-col gap-6">
                 <FileUpload activeDomain={domain.id} onUploaded={handleUploaded} />
 
-                <Card size="sm">
-                  <CardHeader>
-                    <CardTitle>Indexed this session</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {documents[domain.id].length === 0 ? (
-                      <p className="text-muted-foreground">
-                        No {domain.label.toLowerCase()} documents uploaded yet.
-                      </p>
-                    ) : (
-                      <ul className="flex flex-col gap-2">
-                        {documents[domain.id].map((doc) => (
-                          <li key={doc.filename} className="flex items-center gap-2">
-                            <FileText className="size-4 shrink-0 text-muted-foreground" />
-                            <span className="min-w-0 flex-1 truncate" title={doc.filename}>
-                              {doc.filename}
-                            </span>
-                            <Badge variant="secondary">
-                              {doc.chunks_stored} chunk{doc.chunks_stored === 1 ? "" : "s"}
-                            </Badge>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </CardContent>
-                </Card>
+                <DocumentList
+                  domain={domain.id}
+                  documents={documents && documents.filter((doc) => doc.domain === domain.id)}
+                  loadError={documentsError}
+                  onChanged={refreshDocuments}
+                />
               </div>
 
               <ChatWindow domain={domain.id} />

@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { CloudUpload, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { ApiError, uploadDocument, type IngestResult } from "@/lib/api";
+import { MAX_UPLOAD_MB, uploadDocument, type IngestResult } from "@/lib/api";
 import { getDomain, type DomainId } from "@/lib/domains";
 import {
   Card,
@@ -36,6 +36,14 @@ export function FileUpload({ activeDomain, onUploaded }: FileUploadProps) {
       return;
     }
 
+    // Check the size before uploading, so a huge file fails instantly
+    // instead of after a long upload the backend would reject anyway.
+    const sizeMb = file.size / (1024 * 1024);
+    if (sizeMb > MAX_UPLOAD_MB) {
+      toast.error(`"${file.name}" is ${sizeMb.toFixed(1)} MB. The limit is ${MAX_UPLOAD_MB} MB.`);
+      return;
+    }
+
     setIsUploading(true);
     try {
       // null tells the backend to detect the domain from the document's text
@@ -43,16 +51,18 @@ export function FileUpload({ activeDomain, onUploaded }: FileUploadProps) {
       const chunks = `${result.chunks_stored} chunk${result.chunks_stored === 1 ? "" : "s"}`;
       toast.success(
         `Indexed ${result.filename}: ${chunks} in ${getDomain(result.domain).label}`,
+        // The keyword fallback is less accurate, so ask the user to double-check
+        result.detected_by === "keywords"
+          ? {
+              description:
+                "The AI classifier was unavailable, so the domain was guessed from keywords. Check it's right.",
+            }
+          : undefined,
       );
       onUploaded(result);
     } catch (error) {
-      const message =
-        error instanceof ApiError && error.status === 429
-          ? "Rate limit reached. Wait a minute and try again."
-          : error instanceof Error
-            ? error.message
-            : "Upload failed.";
-      toast.error(message);
+      // ApiError messages come from the backend and already explain the problem
+      toast.error(error instanceof Error ? error.message : "Upload failed.");
     } finally {
       setIsUploading(false);
       // Clear the input so choosing the same file again still fires onChange
@@ -71,7 +81,9 @@ export function FileUpload({ activeDomain, onUploaded }: FileUploadProps) {
     <Card>
       <CardHeader>
         <CardTitle>Upload a document</CardTitle>
-        <CardDescription>PDF, DOCX, or TXT. Tables are extracted too.</CardDescription>
+        <CardDescription>
+          PDF, DOCX, or TXT, up to {MAX_UPLOAD_MB} MB. Tables are extracted too.
+        </CardDescription>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-3">
