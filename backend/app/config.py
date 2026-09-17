@@ -10,6 +10,8 @@ load_dotenv(BACKEND_DIR / ".env")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 LLM_MODEL    = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
+# Smaller, separate model for classifying uploads into a domain
+CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "openai/gpt-oss-20b")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 # Resolved against backend/, not the folder uvicorn happens to be started from
 FAISS_INDEX_DIR = str(BACKEND_DIR / os.getenv("FAISS_INDEX_DIR", "faiss_data"))
@@ -37,3 +39,8 @@ HISTORY_MAX_CHARS = int(os.getenv("HISTORY_MAX_CHARS", "1500"))
 
 # Allowed file types 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+
+# Size limits, checked by the API before any processing.
+# The frontend checks the same limits first so users get instant feedback.
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "20"))
+MAX_QUESTION_CHARS = int(os.getenv("MAX_QUESTION_CHARS", "2000"))

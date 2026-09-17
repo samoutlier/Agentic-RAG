@@ -4,12 +4,9 @@ import logging
 
 import groq
 import numpy as np
-from langchain_groq import ChatGroq
 from app.ingest import embedding_model, load_index
-from app.config import (
-    TOP_K_RESULTS, GROQ_API_KEY, LLM_MODEL, LLM_TEMPERATURE,
-    HISTORY_MAX_MESSAGES, HISTORY_MAX_CHARS,
-)
+from app.llm import chat_llm
+from app.config import TOP_K_RESULTS, HISTORY_MAX_MESSAGES, HISTORY_MAX_CHARS
 from app.prompt_templates import get_prompt
 
 logger = logging.getLogger(__name__)
@@ -112,12 +109,15 @@ def build_sources(chunks: list[dict]) -> list[dict]:
     ]
 
 
-# LLM Setup
-llm = ChatGroq(
-    api_key=GROQ_API_KEY,
-    model_name=LLM_MODEL,
-    temperature=LLM_TEMPERATURE,
-)
+def describe_llm_error(exc: groq.APIError) -> tuple[int, str]:
+    """Turn a Groq failure into an HTTP status code and a message the user can act on."""
+    if isinstance(exc, groq.RateLimitError):
+        return 429, "Groq's free-tier rate limit was reached. Wait about a minute and try again."
+    if isinstance(exc, groq.AuthenticationError):
+        return 500, "The Groq API key was rejected. Check GROQ_API_KEY in backend/.env."
+    if isinstance(exc, groq.APIConnectionError):  # includes timeouts
+        return 503, "Couldn't reach Groq. Check the server's internet connection and try again."
+    return 502, "The language model request failed. Check the backend logs for details."
 
 
 def query_document(question: str, domain: str, history: list[dict] | None = None) -> dict:
@@ -128,6 +128,9 @@ def query_document(question: str, domain: str, history: list[dict] | None = None
     3. Build the domain-specific prompt with history, context and question
     4. Send the prompt to Groq LLM and get the answer
     5. Return the answer along with source chunks for citation display
+
+    Groq failures are raised as groq.APIError; the API layer turns them
+    into HTTP errors using describe_llm_error().
     """
     history = history or []
     chunks = retrieve_chunks(build_search_query(question, history), domain)
@@ -143,7 +146,7 @@ def query_document(question: str, domain: str, history: list[dict] | None = None
         history=format_history(history), context=context, question=question
     )
 
-    response = llm.invoke(formatted_prompt)
+    response = chat_llm.invoke(formatted_prompt)
 
     return {
         "answer": response.content,
@@ -166,11 +169,16 @@ async def stream_query(question: str, domain: str, history: list[dict] | None = 
     """
     history = history or []
 
-    # Embedding the question is CPU work; a worker thread keeps the server
-    # free to handle other requests in the meantime.
-    chunks = await asyncio.to_thread(
-        retrieve_chunks, build_search_query(question, history), domain
-    )
+    try:
+        # Embedding the question is CPU work; a worker thread keeps the server
+        # free to handle other requests in the meantime.
+        chunks = await asyncio.to_thread(
+            retrieve_chunks, build_search_query(question, history), domain
+        )
+    except Exception:
+        logger.exception("Retrieval failed")
+        yield _sse("error", "Searching the documents failed. Check the backend logs for details.")
+        return
 
     if not chunks:
         yield _sse("error", "No documents are indexed for this domain yet. Upload one first.")
@@ -185,11 +193,14 @@ async def stream_query(question: str, domain: str, history: list[dict] | None = 
     )
 
     try:
-        async for token_chunk in llm.astream(formatted_prompt):
+        async for token_chunk in chat_llm.astream(formatted_prompt):
             if token_chunk.content:
                 yield _sse("token", token_chunk.content)
-    except groq.RateLimitError:
-        yield _sse("error", "Groq's free-tier rate limit was reached. Wait about a minute and try again.")
+    except groq.APIError as exc:
+        status, message = describe_llm_error(exc)
+        if status != 429:  # rate limits are expected on the free tier; don't log a traceback
+            logger.exception("LLM streaming failed")
+        yield _sse("error", message)
         return
     except Exception:
         logger.exception("LLM streaming failed")

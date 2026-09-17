@@ -1,16 +1,21 @@
+import logging
 import os
 import shutil
 import tempfile
 from typing import Literal
+
+import groq
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.ingest import ingest_document
-from app.query import query_document, stream_query
+from app.ingest import ingest_document, list_documents, delete_document, DocumentError
+from app.query import query_document, stream_query, describe_llm_error
 from app.domain_router import validate_domain
-from app.config import ALLOWED_EXTENSIONS
+from app.config import ALLOWED_EXTENSIONS, MAX_UPLOAD_MB, MAX_QUESTION_CHARS
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Agentic RAG",
@@ -35,7 +40,7 @@ def root():
     return {
         "service": "Agentic RAG",
         "docs": "/docs",
-        "endpoints": ["/health", "/ingest", "/query", "/stream"],
+        "endpoints": ["/health", "/ingest", "/documents", "/query", "/stream"],
     }
 
 
@@ -82,17 +87,50 @@ async def ingest_endpoint(
         if not content:
             raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
+        size_mb = len(content) / (1024 * 1024)
+        if size_mb > MAX_UPLOAD_MB:
+            raise HTTPException(
+                status_code=413,  # "Payload Too Large"
+                detail=f"File is too large ({size_mb:.1f} MB). The limit is {MAX_UPLOAD_MB} MB.",
+            )
+
         with open(tmp_path, "wb") as f:
             f.write(content)
 
         # Full pipeline: parse → detect domain if needed → chunk → embed → store
         return ingest_document(tmp_path, domain or None)
 
-    except ValueError as e:
-        # Raised for unreadable/unsupported content — a client problem, not a server one
+    except DocumentError as e:
+        # Unreadable, encrypted or empty file: a problem with the upload, not the server
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# ── /documents endpoints ──
+# List what's stored, and delete a document from its domain.
+
+@app.get("/documents")
+def documents_endpoint():
+    """Every indexed document: filename, domain, chunk count and page count."""
+    return list_documents()
+
+
+@app.delete("/documents/{domain}/{filename}")
+def delete_document_endpoint(domain: str, filename: str):
+    if not validate_domain(domain):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid domain: {domain}. Valid: legal, finance, healthcare, enterprise",
+        )
+
+    removed = delete_document(domain, filename)
+    if removed == 0:
+        raise HTTPException(
+            status_code=404,
+            detail=f'No document named "{filename}" in the {domain} documents.',
+        )
+    return {"filename": filename, "domain": domain, "chunks_removed": removed}
 
 
 # ── /query endpoint ──
@@ -114,10 +152,17 @@ class QueryRequest(BaseModel):
     history: list[ChatTurn] = Field(default_factory=list, max_length=50)
 
 
-@app.post("/query")
-def query_endpoint(req: QueryRequest):
+def validate_query(req: QueryRequest) -> None:
+    """Checks shared by /query and /stream. Raises HTTP 400 with a clear message."""
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
+
+    if len(req.question) > MAX_QUESTION_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Question is too long ({len(req.question):,} characters). "
+                   f"The limit is {MAX_QUESTION_CHARS:,}.",
+        )
 
     if not validate_domain(req.domain):
         raise HTTPException(
@@ -125,9 +170,20 @@ def query_endpoint(req: QueryRequest):
             detail=f"Invalid domain: {req.domain}. Valid: legal, finance, healthcare, enterprise",
         )
 
+
+@app.post("/query")
+def query_endpoint(req: QueryRequest):
+    validate_query(req)
+
     # Retrieve relevant chunks → build prompt → call LLM → return answer
     history = [turn.model_dump() for turn in req.history]
-    return query_document(req.question, req.domain, history)
+    try:
+        return query_document(req.question, req.domain, history)
+    except groq.APIError as exc:
+        status, message = describe_llm_error(exc)
+        if status != 429:
+            logger.exception("LLM request failed")
+        raise HTTPException(status_code=status, detail=message)
 
 
 # ── /stream endpoint ──
@@ -138,17 +194,13 @@ def query_endpoint(req: QueryRequest):
 # EventSource only issues GET requests. The frontend reads it with
 # fetch() + response.body.getReader() instead. We keep POST because the
 # question belongs in a request body, not in a URL query string.
+#
+# If the client disconnects (e.g. the user presses Stop), Starlette cancels
+# this generator, which closes the Groq request so no more tokens are spent.
 
 @app.post("/stream")
 async def stream_endpoint(req: QueryRequest):
-    if not req.question.strip():
-        raise HTTPException(status_code=400, detail="Question cannot be empty")
-
-    if not validate_domain(req.domain):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid domain: {req.domain}. Valid: legal, finance, healthcare, enterprise",
-        )
+    validate_query(req)
 
     history = [turn.model_dump() for turn in req.history]
     return StreamingResponse(
