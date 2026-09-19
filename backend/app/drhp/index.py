@@ -22,7 +22,7 @@ from rank_bm25 import BM25Okapi
 
 from app.config import IPO_CHUNK_SIZE, IPO_CHUNK_OVERLAP
 from app.drhp.sections import SECTION_PREFIX, Section, normalise_title, section_key
-from app.ingest import EMBEDDING_DIM, embedding_model
+from app.ingest import EMBEDDING_DIM, embed
 
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=IPO_CHUNK_SIZE,
@@ -88,14 +88,12 @@ def build_index(page_texts: list[str], sections: list[Section], folder: Path) ->
                 "section_title": section.title,
             })
 
-    embeddings = embedding_model.encode(
-        [c["text"] for c in chunks], normalize_embeddings=True, batch_size=32
-    )
+    embeddings = embed([c["text"] for c in chunks])
 
     # With unit-length vectors, the inner product IS the cosine similarity,
     # so search scores come out directly as similarities between 0 and 1.
     index = faiss.IndexFlatIP(EMBEDDING_DIM)
-    index.add(np.asarray(embeddings, dtype=np.float32))
+    index.add(embeddings)
 
     folder.mkdir(parents=True, exist_ok=True)
     faiss.write_index(index, str(folder / "index.faiss"))
@@ -148,7 +146,7 @@ class DocumentIndex:
 
     def _dense(self, query: str, allowed: np.ndarray | None) -> list[tuple[int, float]]:
         """(chunk id, cosine similarity) for the passages closest in meaning."""
-        vector = embedding_model.encode([query], normalize_embeddings=True).astype(np.float32)
+        vector = embed([query])
         params, k = None, CANDIDATES
         if allowed is not None:
             # FAISS skips every chunk outside these ids while searching

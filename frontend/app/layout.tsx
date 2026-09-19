@@ -16,9 +16,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agentic RAG — Document Intelligence",
+  title: "IPO Analyser",
   description:
-    "Upload legal, finance, healthcare, or enterprise documents and ask questions answered with cited sources.",
+    "Upload a DRHP or RHP and get a structured, cited analysis from a team of AI agents. Educational, not investment advice.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

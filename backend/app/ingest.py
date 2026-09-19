@@ -190,6 +190,25 @@ EMBEDDING_DIM = embedding_model.get_sentence_embedding_dimension()
 # on a CPU, which matters when a 500-page offer document has ~2,000 chunks.
 embedding_model.max_seq_length = 256
 
+# The model's fast tokenizer isn't thread-safe: two threads encoding at once
+# fail with "RuntimeError: Already borrowed". Analysis agents run in parallel
+# threads and the API serves requests from a thread pool, so every encode
+# goes through embed(), which holds this lock. It's taken per slice of texts,
+# not for a whole document, so a search never waits minutes behind an index build.
+_embedding_lock = threading.Lock()
+EMBED_SLICE = 256
+
+
+def embed(texts: list[str]) -> np.ndarray:
+    """Unit-length embeddings of `texts`, one row each; safe from any thread."""
+    parts = []
+    for start in range(0, len(texts), EMBED_SLICE):
+        with _embedding_lock:
+            parts.append(embedding_model.encode(
+                texts[start:start + EMBED_SLICE], normalize_embeddings=True, batch_size=32,
+            ))
+    return np.vstack(parts).astype(np.float32) if parts else np.zeros((0, EMBEDDING_DIM), np.float32)
+
 
 # ── FAISS Vector Store ──
 # FAISS stores vectors in an efficient index for fast similarity search.
@@ -289,9 +308,8 @@ def embed_and_store(chunks: list[dict], domain: str) -> int:
         m["domain"] = domain
 
     # Encode all chunk texts into vectors (numpy array of shape [N, 384]).
-    # This is the slow part, so it happens before taking the lock.
-    embeddings = embedding_model.encode(texts, normalize_embeddings=True)
-    embeddings = np.array(embeddings, dtype=np.float32)
+    # This is the slow part, so it happens before taking the index lock.
+    embeddings = embed(texts)
 
     with _index_lock:
         index, documents = load_index(domain)

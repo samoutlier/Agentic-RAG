@@ -5,7 +5,7 @@ export const API_URL =
 
 // Must match MAX_UPLOAD_MB and MAX_QUESTION_CHARS in backend/app/config.py.
 // Checking here too gives instant feedback without a round trip.
-export const MAX_UPLOAD_MB = 20;
+export const MAX_UPLOAD_MB = 50;
 export const MAX_QUESTION_CHARS = 2000;
 
 // Shape of the JSON returned by the backend's POST /ingest
@@ -59,7 +59,7 @@ async function readErrorMessage(response: Response): Promise<string> {
 
 // fetch() only throws when the server can't be reached at all, or when the
 // request was cancelled on purpose (which must not be reported as "unreachable")
-async function request(path: string, init: RequestInit = {}): Promise<Response> {
+export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, init);

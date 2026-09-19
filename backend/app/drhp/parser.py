@@ -11,8 +11,11 @@ pipeline can build the index in the background while they run.
 
 Output is saved under ipo_data/<document id>/:
 
+    document.pdf               the uploaded file
     parsed.json                sections, risk headings, summary financials
     index.faiss + chunks.json  the document's search index
+    results/<agent>.json       each agent's output, saved as it finishes
+    analysis.json              the finished analysis: filename, score, rating
 """
 import hashlib
 import json
@@ -134,6 +137,19 @@ def index_offer_document(
     }
     _save_parsed(parsed)
     return parsed
+
+
+def save_result(doc_id: str, name: str, result: dict) -> None:
+    """Save one agent's output as results/<name>.json."""
+    folder = document_folder(doc_id) / "results"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{name}.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def load_result(doc_id: str, name: str) -> dict | None:
+    """An agent's saved output, or None if it hasn't run for this document."""
+    path = document_folder(doc_id) / "results" / f"{name}.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
 def load_parsed(doc_id: str) -> dict:

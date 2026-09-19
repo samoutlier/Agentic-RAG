@@ -3,8 +3,7 @@ import json
 import logging
 
 import groq
-import numpy as np
-from app.ingest import embedding_model, load_index
+from app.ingest import embed, load_index
 from app.llm import chat_llm
 from app.config import TOP_K_RESULTS, HISTORY_MAX_MESSAGES, HISTORY_MAX_CHARS
 from app.prompt_templates import get_prompt
@@ -27,8 +26,7 @@ def retrieve_chunks(query: str, domain: str) -> list[dict]:
         return []
 
     # Encode query into the same vector space as the stored chunks
-    query_embedding = embedding_model.encode(query, normalize_embeddings=True)
-    query_embedding = np.array([query_embedding], dtype=np.float32)
+    query_embedding = embed([query])  # shape [1, 384]
 
     # Ask FAISS for the top-K nearest vectors
     # Returns: distances (shape [1, K]), indices (shape [1, K])

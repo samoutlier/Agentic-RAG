@@ -15,7 +15,15 @@ then the synthesis agent writes the report.
 
 Agents on different Groq models never slow each other down (Groq limits
 each model separately); agents sharing a model are paced by its budget.
+
+Every LLM agent's output is saved as it finishes, and a saved successful
+output is reused next time. So re-running an analysis that failed halfway
+repeats only the agents that failed, and analysing the same file again
+costs no tokens at all. (The rubric always re-runs: it's instant and should
+reflect the current rules.)
 """
+from typing import Callable
+
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import StreamWriter
 
@@ -27,9 +35,25 @@ from app.agents.risk import risk_agent
 from app.agents.rubric import score_analysis
 from app.agents.state import AnalysisState
 from app.agents.synthesis import synthesis_agent
-from app.drhp.parser import index_offer_document, parse_offer_document
+from app.drhp.parser import index_offer_document, load_result, parse_offer_document, save_result
 
 AGENTS = ["risk", "financial", "legal", "business", "offer"]
+
+
+def reusable(name: str, key: str, node: Callable,
+             still_valid: Callable[[dict, dict], bool] | None = None) -> Callable:
+    """Wrap agent node `name` so its output (state[key]) is saved, and
+    reused if this document already has a successful one. `still_valid(saved,
+    state)` can reject a saved output that no longer fits the state."""
+    def wrapped(state: AnalysisState, writer: StreamWriter) -> dict:
+        saved = load_result(state["document_id"], key)
+        if saved and saved.get("status") == "done" and (still_valid is None or still_valid(saved, state)):
+            writer({"agent": name, "event": "done", "message": "reusing the result saved earlier"})
+            return {key: saved}
+        update = node(state, writer)
+        save_result(state["document_id"], key, update[key])
+        return update
+    return wrapped
 
 
 def parse_document(state: AnalysisState, writer: StreamWriter) -> dict:
@@ -64,13 +88,16 @@ def build_graph():
     graph = StateGraph(AnalysisState)
     graph.add_node("parse", parse_document)
     graph.add_node("index", index_document)
-    graph.add_node("risk", risk_agent)
-    graph.add_node("financial", financial_agent)
-    graph.add_node("legal", legal_agent)
-    graph.add_node("business", business_agent)
-    graph.add_node("offer", offer_agent)
+    for name, node in (("risk", risk_agent), ("financial", financial_agent), ("legal", legal_agent),
+                       ("business", business_agent), ("offer", offer_agent)):
+        graph.add_node(name, reusable(name, name, node))
     graph.add_node("score", score_report)
-    graph.add_node("synthesis", synthesis_agent)
+    # A saved report explains a particular score: rewrite it if the score moved
+    graph.add_node("synthesis", reusable(
+        "synthesis", "report", synthesis_agent,
+        still_valid=lambda saved, state: saved.get("score") == state["score"]["score"]
+        and saved.get("rating") == state["score"]["rating"],
+    ))
 
     graph.add_edge(START, "parse")
     for node in ("risk", "financial", "legal", "index"):  # fan out after parse

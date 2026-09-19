@@ -13,6 +13,7 @@ venv/
 
 # Vector store data
 faiss_data/
+ipo_data/
 
 # IDE
 .vscode/
