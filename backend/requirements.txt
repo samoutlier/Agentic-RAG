@@ -11,11 +11,21 @@ python-docx==1.1.2
 sentence-transformers==3.3.1
 faiss-cpu==1.15.0
 numpy==1.26.4
+# Keyword (BM25) search, combined with the embeddings for IPO documents
+rank_bm25==0.2.2
 
 # LLM & RAG chain
 langchain==0.3.14
 langchain-groq==0.2.4
 groq==0.37.1
+
+# Multi-agent orchestration. Pinned to the 0.5 line because newer LangGraph
+# releases require langchain-core 1.x, which the langchain 0.3 packages
+# above don't support.
+langchain-core==0.3.63
+langgraph==0.5.4
+langgraph-checkpoint==2.1.2
+langgraph-prebuilt==0.5.1
 
 # Utilities
 python-dotenv==1.0.1

@@ -57,6 +57,12 @@ Upload legal, finance, healthcare, or enterprise documents and ask questions abo
 - Node.js 20+
 - A free Groq API key from https://console.groq.com
 
+### Get the code
+```bash
+git clone https://github.com/samoutlier/Agentic-RAG.git
+cd Agentic-RAG
+```
+
 ### Backend
 ```bash
 conda create -n agentic-rag python=3.11 -y
@@ -176,14 +182,15 @@ Ask something a document doesn't cover (e.g. "What is the CEO's salary?"): the m
 - [x] Source citations (file, page, match %)
 - [x] End-to-end test of all four domains with the sample documents
 
-**Phase 3 — Polish** 🔧 In progress
-- [x] Step 27: Error handling (bad files, size limits, empty/long questions, LLM failures)
+**Phase 3 — Polish** ✅
+- [x] Error handling (bad files, size limits, empty/long questions, LLM failures)
 - [x] LLM-based domain classification with keyword fallback
-- [x] Step 28: Stop button, search/write loading states, weaker-match folding, scroll that respects reading
+- [x] Stop button, search/write loading states, weaker-match folding, scroll that respects reading
 - [x] PDF tables stored once, in reading order
 - [x] List and delete documents
-- [ ] Step 29: README setup instructions and demo GIF
-- [ ] Step 30: Final GitHub push
+
+All planned phases are complete. The items under Future Improvements are the
+next things worth adding.
 
 ## Known Limitations
 
@@ -191,7 +198,7 @@ Ask something a document doesn't cover (e.g. "What is the CEO's salary?"): the m
 - **Relevance can't be judged from match scores alone.** In testing, clearly relevant passages scored as low as 55% in one document while unrelated ones reached 60% in another, so no passages are dropped from the prompt; weaker matches are only folded away in the sources list.
 - **Follow-up search leans on the previous question**, which can rank passages from the previous topic slightly higher after a topic change. Use **New chat** when switching topics.
 - **Chat history lives in the browser tab**: refreshing the page clears it. Uploaded documents persist on the server.
-- **Documents indexed before the table fix** still contain duplicated table text. Re-upload them to re-index with the current parser.
+- **Single-user by design**: there are no accounts, and everyone using a running instance shares the same document indexes.
 
 ## Future Improvements
 
