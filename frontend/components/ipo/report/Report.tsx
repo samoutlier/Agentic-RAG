@@ -11,6 +11,7 @@ import { BusinessDetails } from "@/components/ipo/report/BusinessDetails";
 import { FinancialDetails } from "@/components/ipo/report/FinancialDetails";
 import { LegalDetails } from "@/components/ipo/report/LegalDetails";
 import { OfferDetails } from "@/components/ipo/report/OfferDetails";
+import { ReportChat } from "@/components/ipo/report/ReportChat";
 import { RiskDetails } from "@/components/ipo/report/RiskDetails";
 import { ScoreBreakdown } from "@/components/ipo/report/ScoreBreakdown";
 import { Summary } from "@/components/ipo/report/Summary";
@@ -84,8 +85,9 @@ export function Report({ analysis }: { analysis: Analysis }) {
           {score && <ScoreBreakdown score={score} />}
         </div>
 
-        <Tabs defaultValue="financial">
+        <Tabs defaultValue="ask">
           <TabsList className="w-full flex-wrap sm:w-fit">
+            <TabsTrigger value="ask">Ask a question</TabsTrigger>
             <TabsTrigger value="financial">Financials</TabsTrigger>
             <TabsTrigger value="risk">
               Risk factors{results.risk?.counts ? ` (${results.risk.counts.total})` : ""}
@@ -96,6 +98,10 @@ export function Report({ analysis }: { analysis: Analysis }) {
           </TabsList>
           <Card className="mt-2">
             <CardContent>
+              {/* keepMounted: the conversation survives switching tabs */}
+              <TabsContent value="ask" keepMounted>
+                <ReportChat documentId={analysis.document_id} />
+              </TabsContent>
               <TabsContent value="financial">
                 <FinancialDetails financial={results.financial} />
               </TabsContent>

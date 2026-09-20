@@ -1,53 +1,83 @@
-# Agentic RAG — Document Intelligence Platform
+# IPO Analyser — a multi-agent reader for Indian offer documents
 
-Upload legal, finance, healthcare, or enterprise documents and ask questions about them. The system classifies each document into a domain, retrieves the most relevant passages, and streams back an answer from an LLM that cites the source file and page.
+Upload a DRHP or RHP (the 300–600 page document a company files before its IPO) and get back a scored, cited report: what the company does, whether the numbers hold up, what the risk factors add up to, where the money is going, and what it is being sued over. Every statement links to the page it came from.
 
-## Architecture
+Built on an earlier general document Q&A app, which is still here at `/general`.
+
+> **Educational, not investment advice.** Every figure comes from the offer document as read by AI models, which make mistakes. The rating is a transparent rubric, not a recommendation.
+
+## How it works
 
 ```
-┌────────────┐     ┌──────────────────────────────────────────┐
-│            │     │              Backend (FastAPI)           │
-│  Next.js   │────▶│                                          │
-│  Frontend  │◀────│  Upload ─▶ Parse ─▶ Classify domain ─▶   │
-│            │ SSE │          Chunk ─▶ Embed ─▶ FAISS         │
-└────────────┘     │                                          │
-                   │  Question + chat history ─▶ Retrieve ─▶  │
-                   │  Domain prompt ─▶ Groq LLM ─▶ SSE stream │
-                   └──────────────────────────────────────────┘
+Upload a DRHP / RHP
+        │
+Agent 0  Parser, no LLM: table of contents → sections, risk headings,
+         summary financials, and a hybrid search index
+        │
+        ├─ Agent 1  Risk factors      scores all 50-80 risk factors 1-5
+        ├─ Agent 2  Financial health  ratios in Python, LLM explains
+        ├─ Agent 5  Legal & approvals cases, amounts vs net worth
+        ├─ Agent 3  Business & promoters   stake, pledges, governance
+        └─ Agent 4  Offer & proceeds  fresh issue vs offer for sale, peers
+        │
+Rubric   0-100 score and rating, in Python, with a reason per point
+        │
+Agent 7  Writes the summary, bull and bear cases, from the agents' output only
+        │
+Report + chat, every claim citing its page
 ```
 
-- **Ingestion:** PDF, DOCX, and TXT files are parsed, with each table written once in its original position. A small LLM reads the opening of the document and classifies it as legal, finance, healthcare, or enterprise; if that call fails, keyword matching decides instead. The text is split into ~500-character chunks, embedded locally, and stored in a separate FAISS index per domain, so a legal question only ever searches legal documents.
-- **Querying:** the question is embedded and matched against its domain's index. The top 5 chunks, the recent conversation, and a domain-specific prompt go to the LLM, and the answer streams back token by token with its sources.
-- **Follow-up questions:** the last 3 question/answer pairs are sent with each question, so "which of those is riskiest?" works. **New chat** clears this memory.
+The pipeline is a **LangGraph** graph. Agents that read the parsed data or the PDF start immediately; the two that search the index wait for it. They run side by side where the models allow it, and results are saved as each finishes.
 
-## Features
+### Design decisions worth knowing
 
-- Upload by drag and drop, with automatic domain detection and a manual override
-- Documents list per domain, loaded from the server, with delete
-- Streaming answers with a **Stop** button, which also stops the LLM request on the server
-- Source citations with file, page, and match score; weaker matches are folded away, and a note appears when even the best match is weak
-- Clear messages for bad files, size limits, rate limits, and connection problems
+- **The LLMs never do arithmetic.** Ratios, percentages, totals and the score are computed in Python. The models extract and explain.
+- **Every number is checked.** A figure an agent reports must appear in the text it was shown; if it doesn't, it's dropped with a warning. Page citations the model invents are removed the same way.
+- **Deterministic wherever possible.** Whether promoter shares are pledged, and whether a case is *against* the company or *filed by* it, are decided by reading the document's own standard wording, not the model's judgement. Both were getting misread.
+- **Free-tier rate limits are designed around.** Each agent has its own Groq model, calls are paced against a token budget per minute (including Qwen's separate output-token limit), and every call is retried when Groq asks for a wait.
+- **Work is never repeated.** Each agent's output is saved, so a failed analysis resumes where it stopped and re-analysing the same file costs nothing.
 
-## Supported Domains
+## The agents
 
-| Domain | Use Cases |
-|---|---|
-| Legal | Contract analysis, compliance checks, clause extraction |
-| Finance | Risk analysis, regulatory review, audit support |
-| Healthcare | Medical research summarization, clinical study analysis |
-| Enterprise | Policy Q&A, knowledge base search, training docs, and anything that fits no other domain |
+| # | Agent | Reads | Produces | Model |
+|---|---|---|---|---|
+| 0 | Parser | Table of contents, then each section | Sections with page ranges, risk headings, summary financials, search index | none |
+| 1 | Risk factors | The numbered risk headings | Every risk scored 1–5, categorised, ranked | `gpt-oss-20b` |
+| 2 | Financial health | Summary financial statements | 16 ratios per period, a 7-part scorecard, red flags, an explanation | `qwen3.8-27b` |
+| 3 | Business & promoters | Our Business, Promoters, Capital Structure | What it does, strengths, weaknesses, promoter stake, pledges, governance | `gpt-oss-120b` |
+| 4 | Offer & use of proceeds | The Offer, Objects, Basis for Price | Fresh issue vs offer for sale, dilution, where the money goes, listed peers | `qwen3.8-27b` |
+| 5 | Legal & approvals | Outstanding Litigation, Government Approvals | Cases by type and party, claims as a share of net worth, missing approvals | `gpt-oss-20b` |
+| — | Rubric | The agents' output | 0–100 score, rating, breakdown, knockout rules | none (Python) |
+| 7 | Synthesis | Only the agents' output | Summary, bull and bear cases, what to check | `gpt-oss-120b` |
 
-## Tech Stack
+The score is out of 100: financial health 30, risk factors 20, business and promoters 20, legal 15, offer structure 15. Ratings are **Leans Subscribe** (65+), **Neutral** (45–64) and **Leans Avoid**. Weak financial health, or a criminal or SEBI case against the company, caps the rating at Neutral however well the rest scores.
+
+## What the reports look like
+
+Each report has a summary with bull and bear cases, the score breakdown with every deduction explained, and five tabs of detail (financials, risk register, business and promoters, offer, legal). Page badges open the PDF at that page. A chat tab answers follow-up questions from the analysis and the document.
+
+## Accuracy
+
+`backend/checks/expected.json` holds facts read by hand from the sample documents, each with its page. The checker compares them with what the agents produced, using no tokens:
+
+```bash
+python checks/verify_accuracy.py
+```
+
+It covers parsed figures (revenue, profit, cash flow), extracted facts (share counts, proceeds, promoter holdings, peer P/E), computed metrics (dilution, offer-for-sale share) and the tricky cases, such as a criminal complaint *filed by* a promoter not counting as one *against* him.
+
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.11, FastAPI, LangChain |
-| LLM (answers) | Groq API, `openai/gpt-oss-120b` (free tier) |
-| LLM (domain classification) | Groq API, `openai/gpt-oss-20b`, with a keyword-matching fallback |
-| Embeddings | sentence-transformers (`BAAI/bge-small-en-v1.5`, runs locally on CPU) |
-| Vector store | FAISS (local, one index per domain) |
-| Document parsing | PyMuPDF, python-docx |
-| Frontend | Next.js 16 (App Router), React 19, Tailwind CSS v4, shadcn/ui |
+| Orchestration | LangGraph 0.5 (pinned; newer releases need langchain-core 1.x) |
+| Backend | Python 3.11, FastAPI, LangChain 0.3 |
+| Models | Groq free tier: `gpt-oss-120b`, `gpt-oss-20b`, `qwen3.8-27b` |
+| Structured output | Pydantic schemas, JSON mode, one repair retry |
+| Search | FAISS (cosine) + BM25 keywords, merged by reciprocal rank fusion |
+| Embeddings | `BAAI/bge-small-en-v1.5`, local on CPU |
+| Parsing | PyMuPDF, python-docx |
+| Frontend | Next.js 16 (App Router), React 19, Tailwind v4, shadcn/ui |
 | Streaming | Server-Sent Events over `fetch` |
 
 ## Setup
@@ -79,130 +109,102 @@ npm install
 ```
 Copy `frontend/.env.example` to `frontend/.env.local`. The default points at `http://127.0.0.1:8000`.
 
-## How to Run
+## How to run
 
-Start the backend from the `backend/` folder:
+Start the backend from `backend/`:
 ```bash
 python -m uvicorn app.main:app --reload
 ```
 The first start downloads the embedding model (~130 MB). `python -m uvicorn` is used instead of plain `uvicorn` because it also works on Windows machines where Application Control blocks pip-generated `.exe` launchers.
 
-Start the frontend from the `frontend/` folder, in a second terminal:
+Start the frontend from `frontend/`, in a second terminal:
 ```bash
 npm run dev
 ```
 
-Open **http://localhost:3000**. Use `localhost` rather than `127.0.0.1`: the backend's CORS setting only allows `http://localhost:3000`.
+Open **http://localhost:3000** and drop in a DRHP or RHP. Use `localhost` rather than `127.0.0.1`: the backend's CORS setting only allows `http://localhost:3000`.
 
 Interactive API docs: http://127.0.0.1:8000/docs
 
-## Try It With the Sample Documents
+To run one analysis from the terminal instead, without the frontend:
+```bash
+python try_agents.py "../samples/Jindal Supreme RHP.PDF"
+```
 
-The `samples/` folder has one fictional document per domain, each with facts you can check:
+### How long it takes
 
-| File | Domain | Try asking | Then follow up with |
-|---|---|---|---|
-| `legal_software_license_agreement.txt` | Legal | How long is the initial term, and how does renewal work? | How much notice is needed to stop that? |
-| `finance_quarterly_report.pdf` | Finance | What was net profit in Q3 FY2026, and how did it change? | What is the biggest risk that could hurt it? |
-| `healthcare_clinical_trial_summary.pdf` | Healthcare | How much did Veltrozan lower systolic blood pressure vs placebo? | What side effects did patients have on it? |
-| `enterprise_remote_work_leave_policy.docx` | Enterprise | How many days of annual leave do employees get? | And what about sick leave? |
+| | First time | Same document again |
+|---|---|---|
+| Parsing | 5–15s | 5–15s |
+| Search index (CPU) | 3–4 min | reused |
+| Agents and report | 2–4 min, mostly waiting on rate limits | reused |
 
-Ask something a document doesn't cover (e.g. "What is the CEO's salary?"): the model is instructed to say so rather than invent an answer.
+About 45,000 Groq tokens per document, spread across three models. Free-tier daily limits allow several documents a day.
 
-## Environment Variables
+## Sample documents
+
+`samples/` has the DRHP and RHP of two real IPOs, with very different profiles: ESDS Software Solution (a cloud and data-centre company, high margins, past losses) and Jindal Supreme (India) (steel pipes, thin margins, negative operating cash flow in its latest year). Analysing both shows how the rubric separates them.
+
+## API
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /ipo/analyses` | Upload a PDF; returns a job id (`fresh=true` redoes every agent) |
+| `GET /ipo/jobs/{job_id}?after=N` | Progress: step statuses and messages after the first N |
+| `GET /ipo/analyses` | Finished analyses, newest first |
+| `GET /ipo/analyses/{document_id}` | One analysis: every agent's output |
+| `GET /ipo/analyses/{document_id}/document` | The uploaded PDF (citations link to `#page=`) |
+| `POST /ipo/analyses/{document_id}/rerun` | Analyse the saved PDF again, reusing finished agents |
+| `POST /ipo/analyses/{document_id}/chat` | Ask about the report and document; streams the answer |
+| `DELETE /ipo/analyses/{document_id}` | Delete everything saved for a document |
+
+The earlier general Q&A endpoints (`/ingest`, `/documents`, `/query`, `/stream`) still work and drive the page at `/general`.
+
+## Environment variables
 
 **Backend** (`backend/.env`, see `backend/.env.example`)
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `GROQ_API_KEY` | *(required)* | Groq API key |
-| `LLM_MODEL` | `openai/gpt-oss-120b` | Model that answers questions |
-| `LLM_TEMPERATURE` | `0.1` | Low values keep answers factual |
-| `CLASSIFIER_MODEL` | `openai/gpt-oss-20b` | Model that classifies uploads. Groq rate-limits each model separately, so this doesn't use the answer model's quota |
-| `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Changing it requires deleting `backend/faiss_data/` and re-uploading |
-| `FAISS_INDEX_DIR` | `faiss_data` | Index location, relative to `backend/` |
-| `CHUNK_SIZE` / `CHUNK_OVERLAP` | `500` / `50` | Chunking, in characters |
-| `TOP_K_RESULTS` | `5` | Chunks retrieved per question |
-| `HISTORY_MAX_MESSAGES` / `HISTORY_MAX_CHARS` | `6` / `1500` | How much conversation reaches the prompt |
-| `MAX_UPLOAD_MB` / `MAX_QUESTION_CHARS` | `20` / `2000` | Request size limits |
+| `RISK_AGENT_MODEL` | `openai/gpt-oss-20b` | Agent 1 |
+| `FINANCIAL_AGENT_MODEL` | `qwen/qwen3.8-27b` | Agent 2 |
+| `BUSINESS_AGENT_MODEL` | `openai/gpt-oss-120b` | Agent 3 (the 20b model breaks this agent's nested JSON) |
+| `OFFER_AGENT_MODEL` | `qwen/qwen3.8-27b` | Agent 4 |
+| `LEGAL_AGENT_MODEL` | `openai/gpt-oss-20b` | Agent 5 |
+| `SYNTHESIS_AGENT_MODEL` | `openai/gpt-oss-120b` | Agent 7 |
+| `GROQ_TOKENS_PER_MINUTE` | `8000` | Free-tier budget each model is paced against |
+| `QWEN_OUTPUT_TOKENS_PER_MINUTE` | `1000` | Qwen's separate output-token limit |
+| `IPO_DATA_DIR` | `ipo_data` | Where documents, indexes and results are saved |
+| `IPO_CHUNK_SIZE` / `IPO_CHUNK_OVERLAP` | `800` / `100` | Chunking for offer documents |
+| `LLM_MODEL` | `openai/gpt-oss-120b` | Answers chat questions |
+| `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Changing it means deleting `ipo_data/` and re-analysing |
+| `MAX_UPLOAD_MB` / `MAX_QUESTION_CHARS` | `50` / `2000` | Request size limits |
 
-**Frontend** (`frontend/.env.local`, see `frontend/.env.example`)
+Settings for the general Q&A app (`CHUNK_SIZE`, `TOP_K_RESULTS`, `FAISS_INDEX_DIR`, `CLASSIFIER_MODEL`, `HISTORY_*`) are unchanged and listed in `.env.example`.
+
+**Frontend** (`frontend/.env.local`)
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:8000` | Backend URL |
 
-## API Endpoints
+## Known limitations
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/health` | Liveness check |
-| POST | `/ingest` | Upload a document. Multipart form: `file`, optional `domain` (omit to auto-detect) |
-| GET | `/documents` | List stored documents: `filename`, `domain`, `chunks`, `pages` |
-| DELETE | `/documents/{domain}/{filename}` | Delete a document from its domain (404 if it doesn't exist) |
-| POST | `/query` | Ask a question and get `{answer, sources}` |
-| POST | `/stream` | Same as `/query`, but streams `sources`, `token`, `done`, or `error` events over SSE |
+- **Only what the document says.** No market data, no subscription figures, no anchor-investor list. There's no P/E at the issue price because the price band is published after the DRHP and RHP.
+- **Some offer documents can't be read.** One sample's restated financial statements are drawn as shapes rather than text; the summary financial statements are used instead. A document with no readable table of contents is rejected.
+- **The models vary between runs.** Extraction of long legal chapters is the least stable part: one run found a GST claim in a footnote that another missed.
+- **The rubric's weights are judgement calls,** written down in `backend/app/agents/rubric.py` so they can be argued with and changed.
+- **Unfinished jobs live in memory.** A server restart loses a running job, though everything already saved is kept and re-uploading resumes.
+- **Industry-blind thresholds.** "A good margin" is treated the same for a data-centre operator and a steel pipe maker.
 
-`/ingest` returns the chosen domain and how it was chosen: `detected_by` is `"user"`, `"llm"`, or `"keywords"` (the fallback):
-```json
-{ "filename": "finance_quarterly_report.pdf", "domain": "finance", "detected_by": "llm", "pages_parsed": 2, "chunks_stored": 4 }
-```
+## Build status
 
-`/query` and `/stream` take this JSON body. `history` is optional:
-```json
-{
-  "question": "Which of those carries the biggest risk?",
-  "domain": "legal",
-  "history": [
-    { "role": "user", "content": "What are the borrower's obligations?" },
-    { "role": "assistant", "content": "..." }
-  ]
-}
-```
+Steps 1–18 of the build plan are complete: parser, the five analysis agents, rubric, synthesis, background jobs, API, upload and progress UI, report page, chat and accuracy checks.
 
-## Limits and Error Handling
+## Possible next steps
 
-- **Uploads:** PDF, DOCX, or TXT up to 20 MB. Corrupted, password-protected, and image-only (scanned) PDFs are rejected with a message explaining why. Text files saved in Windows-1252 encoding are read correctly.
-- **Domain classification:** if the classifier model is rate-limited, unreachable, or gives an unclear reply, the upload still succeeds using keyword matching, and the UI asks you to check the domain.
-- **Questions:** up to 2,000 characters. Empty questions and unknown domains are rejected.
-- **LLM failures:** a rate limit, a rejected API key, or no connection to Groq each produce a specific message. During streaming these arrive as an `error` event, because the HTTP status has already been sent.
-- **Groq free tier:** limits apply per API key and per model, and can change. At the time of writing, the key used in development allowed about 8,000 tokens per minute and 1,000 requests per day for each model. One question costs roughly 1,500–3,000 tokens, so rapid-fire questions can hit the limit. Wait a minute and retry, or press **Stop** on answers you don't need.
-
-## Build Status
-
-**Phase 0 — Environment Setup** ✅
-
-**Phase 1 — Backend Core** ✅
-- [x] `config.py`, `ingest.py`, `domain_router.py`, `prompt_templates.py`, `query.py`, `main.py`
-
-**Phase 2 — Frontend** ✅
-- [x] Next.js scaffold, Tailwind, shadcn/ui
-- [x] Root layout, domain tabs, file upload with auto-detect
-- [x] Streaming chat window with follow-up question memory
-- [x] Source citations (file, page, match %)
-- [x] End-to-end test of all four domains with the sample documents
-
-**Phase 3 — Polish** ✅
-- [x] Error handling (bad files, size limits, empty/long questions, LLM failures)
-- [x] LLM-based domain classification with keyword fallback
-- [x] Stop button, search/write loading states, weaker-match folding, scroll that respects reading
-- [x] PDF tables stored once, in reading order
-- [x] List and delete documents
-
-All planned phases are complete. The items under Future Improvements are the
-next things worth adding.
-
-## Known Limitations
-
-- **Four fixed domains.** A document that fits none of them (e.g. a machine-learning research paper) is filed under Enterprise. Uncheck auto-detect to choose the domain yourself.
-- **Relevance can't be judged from match scores alone.** In testing, clearly relevant passages scored as low as 55% in one document while unrelated ones reached 60% in another, so no passages are dropped from the prompt; weaker matches are only folded away in the sources list.
-- **Follow-up search leans on the previous question**, which can rank passages from the previous topic slightly higher after a topic change. Use **New chat** when switching topics.
-- **Chat history lives in the browser tab**: refreshing the page clears it. Uploaded documents persist on the server.
-- **Single-user by design**: there are no accounts, and everyone using a running instance shares the same document indexes.
-
-## Future Improvements
-
-- Summarize figures and charts with a vision model (e.g. `qwen/qwen3.6-27b` on Groq)
-- Rewrite follow-up questions with an LLM before searching, instead of prepending the previous question
-- Upgrade embeddings to Qwen3-Embedding-0.6B
-- Docker deployment
+- Compare two IPOs, or a DRHP against its later RHP, side by side
+- Accept the price band once announced, to compute P/E against peers
+- Industry-aware thresholds, from the peer figures the document already gives
+- A faster index (quantised embeddings, or reuse across documents from the same issuer)

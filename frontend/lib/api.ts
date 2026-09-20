@@ -85,44 +85,24 @@ export type Source = {
   distance: number;
 };
 
-// The events the backend's POST /stream sends, one per `data:` line
-type StreamEvent =
-  | { type: "sources"; content: Source[] }
-  | { type: "token"; content: string }
-  | { type: "error"; content: string }
-  | { type: "done"; content: string };
+// The events a streaming endpoint sends, one per `data:` line. The shape of
+// "sources" depends on the endpoint, so each caller casts it.
+export type StreamEvent = { type: "sources" | "token" | "error" | "done"; content: unknown };
 
 type StreamHandlers = {
   onSources: (sources: Source[]) => void;
   onToken: (token: string) => void;
 };
 
-// One earlier message, sent back so follow-up questions have context
-export type ChatTurn = {
-  role: "user" | "assistant";
-  content: string;
-};
-
 /**
- * Ask a question via POST /stream and receive the answer piece by piece.
- * `history` is the earlier conversation, oldest first.
- * Pass an AbortSignal to be able to cancel; cancelling throws an AbortError.
- * Resolves once the answer is complete; throws if anything goes wrong.
+ * Read a Server-Sent Events response, passing each event to `onEvent`.
+ * Returns when the stream's "done" event arrives; throws if the stream
+ * reports an error or stops early.
  */
-export async function streamQuery(
-  question: string,
-  domain: DomainId,
-  history: ChatTurn[],
-  handlers: StreamHandlers,
-  signal?: AbortSignal,
+export async function readEventStream(
+  response: Response,
+  onEvent: (event: StreamEvent) => void,
 ): Promise<void> {
-  const response = await request("/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, domain, history }),
-    signal,
-  });
-
   // EventSource only supports GET, so we read the POST response body as a
   // stream ourselves. Each read() returns whatever bytes have arrived so far.
   const reader = response.body!.getReader();
@@ -156,15 +136,46 @@ export async function streamQuery(
         throw new Error("Received an unreadable response from the backend. Please try again.");
       }
 
-      if (event.type === "sources") handlers.onSources(event.content);
-      else if (event.type === "token") handlers.onToken(event.content);
-      else if (event.type === "error") throw new Error(event.content);
-      else if (event.type === "done") return;
+      if (event.type === "error") throw new Error(String(event.content));
+      if (event.type === "done") return;
+      onEvent(event);
     }
   }
 
   // The connection closed without a "done" event: the answer was cut off
   throw new Error("The response was cut off before it finished. Please try again.");
+}
+
+// One earlier message, sent back so follow-up questions have context
+export type ChatTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+/**
+ * Ask a question via POST /stream and receive the answer piece by piece.
+ * `history` is the earlier conversation, oldest first.
+ * Pass an AbortSignal to be able to cancel; cancelling throws an AbortError.
+ * Resolves once the answer is complete; throws if anything goes wrong.
+ */
+export async function streamQuery(
+  question: string,
+  domain: DomainId,
+  history: ChatTurn[],
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await request("/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, domain, history }),
+    signal,
+  });
+
+  await readEventStream(response, (event) => {
+    if (event.type === "sources") handlers.onSources(event.content as Source[]);
+    else if (event.type === "token") handlers.onToken(event.content as string);
+  });
 }
 
 /**

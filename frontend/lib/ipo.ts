@@ -1,7 +1,7 @@
 // Types and API calls for the IPO analysis. The types mirror the JSON the
 // backend's agents produce (backend/app/agents/*.py), so a renamed field
 // there shows up here as a type error instead of a silently empty page.
-import { API_URL, request } from "@/lib/api";
+import { API_URL, readEventStream, request, type ChatTurn } from "@/lib/api";
 
 // ── Jobs: an analysis running in the background ──
 
@@ -267,6 +267,40 @@ export async function getAnalysis(documentId: string): Promise<Analysis> {
 
 export async function deleteAnalysis(documentId: string): Promise<void> {
   await request(`/ipo/analyses/${encodeURIComponent(documentId)}`, { method: "DELETE" });
+}
+
+// ── Chat about an analysed document ──
+
+/** One passage the answer drew on. */
+export type IpoSource = {
+  page: number;
+  section_title: string;
+  text_preview: string;
+  score: number;
+};
+
+/**
+ * Ask about an analysed IPO and receive the answer piece by piece.
+ * `history` is the earlier conversation, oldest first. Pass an AbortSignal
+ * to cancel; cancelling throws an AbortError.
+ */
+export async function streamChat(
+  documentId: string,
+  question: string,
+  history: ChatTurn[],
+  handlers: { onSources: (sources: IpoSource[]) => void; onToken: (token: string) => void },
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await request(`/ipo/analyses/${encodeURIComponent(documentId)}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, history }),
+    signal,
+  });
+  await readEventStream(response, (event) => {
+    if (event.type === "sources") handlers.onSources(event.content as IpoSource[]);
+    else if (event.type === "token") handlers.onToken(event.content as string);
+  });
 }
 
 /** The uploaded PDF, served by the backend for viewing in the browser. */
