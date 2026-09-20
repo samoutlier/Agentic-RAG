@@ -1,0 +1,62 @@
+{
+  "_about": "Facts read by hand from the sample documents, with the page they appear on. verify_accuracy.py compares each with what the agents produced, so a change to a prompt, model or parser that breaks an extraction shows up as a failed check.",
+  "jindal-supreme-rhp-360eded96f": {
+    "filename": "Jindal Supreme RHP.PDF",
+    "checks": [
+      { "what": "Risk factors found", "path": "risk.counts.total", "expect": 59, "source": "numbered headings, pp. 24-55" },
+      { "what": "Revenue FY2026 (₹ m)", "path": "financial.metrics.revenue.FY2026", "expect": 6753.87, "source": "p. 60, reported as 67,538.7 lakh" },
+      { "what": "Profit after tax FY2026 (₹ m)", "path": "financial.metrics.pat.FY2026", "expect": 225.29, "source": "p. 60" },
+      { "what": "Operating cash flow FY2026 (₹ m)", "path": "financial.metrics.operating_cash_flow.FY2026", "expect": -56.87, "source": "p. 61, negative" },
+      { "what": "Fresh issue shares", "path": "offer.structure.fresh_issue_shares", "expect": 10741149, "source": "pp. 56 and 92: 1,07,41,149" },
+      { "what": "Offer for sale shares", "path": "offer.structure.offer_for_sale_shares", "expect": 2686851, "source": "pp. 56 and 92: 26,86,851" },
+      { "what": "Shares before the offer", "path": "offer.structure.shares_before_offer", "expect": 40282620, "source": "p. 56" },
+      { "what": "Shares after the offer", "path": "offer.structure.shares_after_offer", "expect": 51023769, "source": "p. 56" },
+      { "what": "Promoters selling in the offer", "path": "offer.structure.promoters_selling", "expect": true, "source": "p. 92: the Promoter Group Selling Shareholder" },
+      { "what": "Debt repayment from proceeds (₹ lakh)", "path": "offer.structure.objects[0].amount", "expect": 7100.0, "source": "p. 92" },
+      { "what": "Offer for sale share of shares offered (%)", "path": "offer.metrics.offer_for_sale_pct_of_shares_offered", "expect": 20.0, "source": "26,86,851 of 1,34,28,000" },
+      { "what": "Dilution (%)", "path": "offer.metrics.dilution_pct", "expect": 21.1, "source": "1,07,41,149 of 5,10,23,769" },
+      { "what": "Peer P/E, highest", "path": "offer.peers.peer_pe_high", "expect": 65.55, "source": "p. 102" },
+      { "what": "Peer P/E, lowest", "path": "offer.peers.peer_pe_low", "expect": 22.31, "source": "p. 102" },
+      { "what": "Peer P/E, average", "path": "offer.peers.peer_pe_average", "expect": 36.97, "source": "p. 102" },
+      { "what": "Promoters' pre-offer holding (%)", "path": "business.promoters.pre_offer_holding_pct", "expect": 82.03, "source": "p. 217" },
+      { "what": "Promoter shares pledged", "path": "business.promoters.shares_pledged", "expect": false, "source": "p. 84: none are pledged" },
+      { "what": "Criminal cases against the company or its people", "path": "legal.summary.against_by_type.criminal.count", "expect": 0, "source": "pp. 313-316: the only criminal complaint was filed BY the promoter" }
+    ]
+  },
+  "jindal-supreme-drhp-3ebe79d0aa": {
+    "filename": "Jindal Supreme DRHP.PDF",
+    "checks": [
+      { "what": "Risk factors found", "path": "risk.counts.total", "expect": 57, "source": "numbered headings, pp. 24-54" },
+      { "what": "Revenue FY2025 (₹ m)", "path": "financial.metrics.revenue.FY2025", "expect": 5863.99, "source": "p. 60; matches the RHP's FY2025 column" },
+      { "what": "Profit after tax FY2025 (₹ m)", "path": "financial.metrics.pat.FY2025", "expect": 242.68, "source": "p. 60; matches the RHP" },
+      { "what": "Promoters' pre-offer holding (%)", "path": "business.promoters.pre_offer_holding_pct", "expect": 82.03, "source": "p. 222" },
+      { "what": "Promoter shares pledged", "path": "business.promoters.shares_pledged", "expect": false, "source": "p. 86: none are pledged" }
+    ]
+  },
+  "esds-rhp-f48dba978f": {
+    "filename": "ESDS RHP.pdf",
+    "checks": [
+      { "what": "Risk factors found", "path": "risk.counts.total", "expect": 72, "source": "numbered headings, pp. 23-76" },
+      { "what": "Revenue FY2026 (₹ m)", "path": "financial.metrics.revenue.FY2026", "expect": 4722.1, "source": "p. 81" },
+      { "what": "Profit after tax FY2026 (₹ m)", "path": "financial.metrics.pat.FY2026", "expect": 1208.23, "source": "p. 81" },
+      { "what": "Operating cash flow FY2026 (₹ m)", "path": "financial.metrics.operating_cash_flow.FY2026", "expect": 13677.13, "source": "p. 83; unusually large, flagged by the agent" },
+      { "what": "Fresh issue size (₹ m)", "path": "offer.structure.fresh_issue_amount", "expect": 7200.0, "source": "pp. 77 and 131" },
+      { "what": "Offer for sale shares", "path": "offer.structure.offer_for_sale_shares", "expect": 0, "source": "p. 77: a fresh issue only" },
+      { "what": "Shares before the offer", "path": "offer.structure.shares_before_offer", "expect": 100427753, "source": "p. 77" },
+      { "what": "Data centre equipment from proceeds (₹ m)", "path": "offer.structure.objects[0].amount", "expect": 5760.0, "source": "pp. 131-132" },
+      { "what": "Promoters' pre-offer holding (%)", "path": "business.promoters.pre_offer_holding_pct", "expect": 45.86, "source": "pp. 122 and 318" },
+      { "what": "Promoter shares pledged", "path": "business.promoters.shares_pledged", "expect": false, "source": "p. 123: none are pledged" }
+    ]
+  },
+  "esds-drhp-b4a60feace": {
+    "filename": "ESDS DRHP.pdf",
+    "checks": [
+      { "what": "Risk factors found", "path": "risk.counts.total", "expect": 72, "source": "numbered headings, pp. 34-79" },
+      { "what": "Revenue FY2024 (₹ m)", "path": "financial.metrics.revenue.FY2024", "expect": 2865.18, "source": "p. 84; matches the RHP's FY2024 column" },
+      { "what": "Loss FY2023 (₹ m)", "path": "financial.metrics.pat.FY2023", "expect": -224.6, "source": "p. 84" },
+      { "what": "Promoters' pre-offer holding (%)", "path": "business.promoters.pre_offer_holding_pct", "expect": 45.86, "source": "pp. 119 and 279" },
+      { "what": "Promoter shares pledged", "path": "business.promoters.shares_pledged", "expect": false, "source": "p. 121: none are pledged" },
+      { "what": "Peer P/E (E2E Networks)", "path": "offer.peers.peer_pe_average", "expect": 156.4, "source": "p. 140" }
+    ]
+  }
+}

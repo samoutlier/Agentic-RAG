@@ -15,6 +15,7 @@ from app.query import query_document, stream_query, describe_llm_error
 from app.domain_router import validate_domain
 from app.config import ALLOWED_EXTENSIONS, MAX_UPLOAD_MB, MAX_QUESTION_CHARS
 from app.agents import jobs
+from app.drhp.chat import has_analysis, stream_chat
 from app.drhp.parser import document_folder, document_id
 
 logger = logging.getLogger(__name__)
@@ -220,6 +221,7 @@ async def stream_endpoint(req: QueryRequest):
 #   GET  /ipo/analyses/{id}     one finished analysis: every agent's output
 #   GET  /ipo/analyses/{id}/document   the uploaded PDF, so citations can open it
 #   POST /ipo/analyses/{id}/rerun      analyse the saved PDF again (resumes)
+#   POST /ipo/analyses/{id}/chat       ask about the report and the document
 #   DELETE /ipo/analyses/{id}   delete everything saved for a document
 
 @app.post("/ipo/analyses", status_code=202)  # 202 Accepted: queued, not finished
@@ -308,6 +310,31 @@ def rerun_analysis_endpoint(doc_id: str, fresh: bool = False):
         jobs.clear_results(doc_id)
     job = jobs.submit(doc_id, pdf.name)
     return {"job_id": job.id, "document_id": doc_id, "status": job.status}
+
+
+class IpoChatRequest(BaseModel):
+    question: str
+    # Earlier messages, oldest first. Capped because this comes from the client.
+    history: list[ChatTurn] = Field(default_factory=list, max_length=50)
+
+
+@app.post("/ipo/analyses/{doc_id}/chat")
+async def ipo_chat_endpoint(doc_id: str, req: IpoChatRequest):
+    """Answer a question about an analysed IPO, streamed as Server-Sent
+    Events: the sources used, then the answer token by token."""
+    doc_id = os.path.basename(doc_id)
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
+    if len(req.question) > MAX_QUESTION_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Question is too long ({len(req.question):,} characters). The limit is {MAX_QUESTION_CHARS:,}.",
+        )
+    if not has_analysis(doc_id):
+        raise HTTPException(status_code=404, detail="No finished analysis for this document")
+
+    history = [turn.model_dump() for turn in req.history]
+    return StreamingResponse(stream_chat(doc_id, req.question, history), media_type="text/event-stream")
 
 
 @app.delete("/ipo/analyses/{doc_id}")
